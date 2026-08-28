@@ -89,6 +89,23 @@ def evaluate_model(checkpoint_path, num_batches=20):
     print("Saved 'final_L1_eval_grid.png' to the working directory.")
 
 if __name__ == "__main__":
-    # Pulls directly from the working directory where train.py saves it
-    MODEL_PATH = "srdiff_elt_epoch_500.pt"
+    import os
+    import sys
+    import glob
+    import re
+
+    if len(sys.argv) > 1:
+        MODEL_PATH = sys.argv[1]
+    elif os.path.exists("srdiff_elt_epoch_500.pt"):
+        MODEL_PATH = "srdiff_elt_epoch_500.pt"
+    else:
+        ckpts = glob.glob("srdiff_elt_epoch_*.pt")
+        if ckpts:
+            def extract_epoch(path):
+                m = re.search(r"srdiff_elt_epoch_(\d+)\.pt", path)
+                return int(m.group(1)) if m else -1
+            MODEL_PATH = max(ckpts, key=extract_epoch)
+        else:
+            MODEL_PATH = "srdiff_elt_epoch_500.pt"
+
     evaluate_model(MODEL_PATH, num_batches=20)

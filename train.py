@@ -37,12 +37,36 @@ def train():
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr, weight_decay=config.weight_decay)
     schedule = DiffusionSchedule(timesteps=config.num_timesteps)
+
+    # Auto-resume from latest checkpoint if available
+    start_epoch = 0
+    import glob
+    import re
+
+    ckpts = glob.glob("srdiff_elt_epoch_*.pt")
+    if ckpts:
+        def extract_epoch(path):
+            m = re.search(r"srdiff_elt_epoch_(\d+)\.pt", path)
+            return int(m.group(1)) if m else -1
+
+        latest_ckpt = max(ckpts, key=extract_epoch)
+        if rank == 0:
+            print(f"Resuming training from checkpoint: {latest_ckpt}")
+        checkpoint = torch.load(latest_ckpt, map_location=device)
+        
+        target_model = model.module if is_distributed else model
+        target_model.load_state_dict(checkpoint["model_state_dict"])
+        ema.load_state_dict(checkpoint["ema_state_dict"])
+        if "optimizer_state_dict" in checkpoint:
+            optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        start_epoch = checkpoint.get("epoch", extract_epoch(latest_ckpt))
+
     model.train()
 
     if rank == 0:
-        print(f"--- Initializing ELT-SRDiff Training (FAST MODE) ---")
+        print(f"--- Initializing ELT-SRDiff Training (FAST MODE) from Epoch {start_epoch + 1} ---")
 
-    for epoch in range(config.epochs):
+    for epoch in range(start_epoch, config.epochs):
         if sampler:
             sampler.set_epoch(epoch)
 
@@ -77,6 +101,7 @@ def train():
                 "epoch": epoch + 1,
                 "model_state_dict": (model.module if is_distributed else model).state_dict(),
                 "ema_state_dict": ema.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
             }, ckpt_path)
 
             ema.ema_model.eval()
